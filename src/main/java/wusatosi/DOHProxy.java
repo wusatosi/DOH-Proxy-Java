@@ -9,7 +9,7 @@ import java.net.URL;
 
 public class DOHProxy {
 
-    private static String remoteAddress = getUpstream();
+    private static String upstream = getUpstream();
 
     private static String getUpstream() {
         String upstream = System.getenv("upstream");
@@ -24,24 +24,41 @@ public class DOHProxy {
     }
 
     public static byte[] makeRequest(byte[] raw) throws IOException {
-        HttpURLConnection hcon = (HttpURLConnection) new URL(remoteAddress).openConnection(Proxy.NO_PROXY);
-        hcon.setRequestMethod("POST");
-        hcon.setRequestProperty("accept", "application/dns-message");
-        hcon.setRequestProperty("content-type", "application/dns-message");
-        hcon.setDoOutput(true);
-        OutputStream output = hcon.getOutputStream();
+        HttpURLConnection httpClient = setupHttpURLConnection(raw);
+        try {
+            System.out.printf("received status code:%d, %s%n", httpClient.getResponseCode(), httpClient.getResponseMessage());
+        } catch (IOException e) {
+            logIOExceptionDuringRequest(httpClient, e);
+            throw e;
+        }
+        InputStream inputStream = httpClient.getInputStream();
+        return readALLBytes(inputStream);
+    }
+
+    private static HttpURLConnection setupHttpURLConnection(byte[] raw) throws IOException {
+        HttpURLConnection httpClient = (HttpURLConnection) new URL(upstream).openConnection(Proxy.NO_PROXY);
+        httpClient.setRequestMethod("POST");
+        setupAcceptAndContentType(httpClient);
+        writeRequest(httpClient, raw);
+        return httpClient;
+    }
+
+    private static void setupAcceptAndContentType(HttpURLConnection httpClient) {
+        httpClient.setRequestProperty("accept", "application/dns-message");
+        httpClient.setRequestProperty("content-type", "application/dns-message");
+    }
+
+    private static void writeRequest(HttpURLConnection httpClient, byte[] raw) throws IOException {
+        httpClient.setDoOutput(true);
+        OutputStream output = httpClient.getOutputStream();
         output.write(raw);
         output.flush();
         output.close();
-        try {
-            System.out.printf("received status code:%d, %s%n", hcon.getResponseCode(), hcon.getResponseMessage());
-        } catch (IOException e) {
-            System.out.println("non-normal status code or request failed (" + e + ")");
-            System.out.println(new String(readALLBytes(hcon.getErrorStream())));
-            throw e;
-        }
-        InputStream inputStream = hcon.getInputStream();
-        return readALLBytes(inputStream);
+    }
+
+    private static void logIOExceptionDuringRequest(HttpURLConnection hcon, IOException e) throws IOException {
+        System.out.println("non-normal status code or request failed (" + e + ")");
+        System.out.println(new String(readALLBytes(hcon.getErrorStream())));
     }
 
     private static byte[] readALLBytes(InputStream inputStream) throws IOException {
